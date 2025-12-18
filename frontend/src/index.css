@@ -1,0 +1,35 @@
+@import "tailwindcss";
+
+@theme {
+  --color-slate-900: #0f172a;
+  --color-slate-50: #f8fafc;
+  --color-white-5: rgba(255, 255, 255, 0.05);
+  --color-white-10: rgba(255, 255, 255, 0.1);
+  --color-white-20: rgba(255, 255, 255, 0.2);
+  --color-black-20: rgba(0, 0, 0, 0.2);
+  --color-black-40: rgba(0, 0, 0, 0.4);
+}
+
+@layer base {
+  body {
+    @apply bg-slate-900 text-slate-50 antialiased min-h-screen selection:bg-cyan-500/30 selection:text-cyan-200;
+    background:
+      radial-gradient(circle at 15% 50%, rgba(76, 29, 149, 0.25), transparent 25%),
+      radial-gradient(circle at 85% 30%, rgba(14, 165, 233, 0.25), transparent 25%),
+      linear-gradient(to bottom right, #0f172a, #1e1b4b);
+  }
+}
+
+@layer components {
+  .glass-panel {
+    @apply bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl;
+  }
+
+  .glass-input {
+    @apply bg-black/20 border border-white/10 text-white placeholder-slate-400 focus:bg-black/40 focus:border-cyan-400/50 focus:ring-2 focus:ring-cyan-400/20 focus:outline-none transition-all duration-300;
+  }
+
+  .glass-button {
+    @apply bg-gradient-to-r from-cyan-500/80 to-blue-600/80 hover:from-cyan-400 hover:to-blue-500 text-white shadow-lg shadow-cyan-900/20 border border-white/20 backdrop-blur-sm transition-all duration-300 transform hover:-translate-y-0.5 active:translate-y-0;
+  }
+}

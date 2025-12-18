@@ -1,0 +1,6 @@
+fastapi
+uvicorn
+scenedetect[opencv]
+opencv-python-headless
+ollama
+python-multipart
