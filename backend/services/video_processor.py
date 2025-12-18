@@ -30,14 +30,30 @@ class VideoProcessor:
         # Manual iteration to support progress callback
         # We need to process frames one by one
         frame_num = 0
+        
+        # Performance Optimization: Downscale frame
+        # Content detection is efficient at low resolutions (e.g. height 270-360px).
+        # We will manually resize to ensure speed.
+        target_height = 360
+        import cv2
+
         while True:
             frame = video.read()
             if frame is None:
                 break
             
+            # Downscale for performance if needed
+            height, width = frame.shape[:2]
+            if height > target_height:
+                scale = target_height / height
+                new_width = int(width * scale)
+                frame_resized = cv2.resize(frame, (new_width, target_height), interpolation=cv2.INTER_LINEAR)
+            else:
+                frame_resized = frame
+
             # Use internal _process_frame since public API seems to lack simple frame feed in this version
             # or it's hidden. This affords us granular progress control.
-            scene_manager._process_frame(frame_num, frame)
+            scene_manager._process_frame(frame_num, frame_resized)
             
             frame_num += 1
             
