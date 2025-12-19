@@ -80,8 +80,8 @@ async def analyze_video(request: VideoRequest):
             import queue
             q = queue.Queue()
             
-            def progress_callback(percent):
-                q.put({"type": "progress", "value": percent})
+            def progress_callback(percent, fps=0.0, eta=0.0):
+                q.put({"type": "progress", "value": percent, "fps": fps, "eta": eta})
             
             # Run detection in a separate thread
             import threading
@@ -108,25 +108,36 @@ async def analyze_video(request: VideoRequest):
                     yield json.dumps(item) + "\n"
                 except queue.Empty:
                     if not t.is_alive():
+                        print("DEBUG: Thread died, breaking loop")
                         break
                     continue
             
             t.join()
+            print("DEBUG: Thread joined.")
             
             if 'error' in result_container:
+                print(f"DEBUG: Error in result: {result_container['error']}")
                 yield json.dumps({"type": "error", "message": result_container['error']}) + "\n"
             else:
                 formatted_scenes = []
-                for i, (start, end) in enumerate(result_container['data']):
-                    formatted_scenes.append({"start": start, "end": end, "scene_number": i+1})
-                
-                yield json.dumps({
-                    "type": "complete", 
-                    "video_path": request.path, 
-                    "scenes": formatted_scenes
-                }) + "\n"
+                # Check if data exists
+                if 'data' not in result_container:
+                     print("DEBUG: No data in result container! Thread must have failed silently.")
+                     yield json.dumps({"type": "error", "message": "Internal Error: No data produced."}) + "\n"
+                else:
+                    print(f"DEBUG: Yielding complete message with {len(result_container['data'])} scenes")
+                    for i, (start, end) in enumerate(result_container['data']):
+                        formatted_scenes.append({"start": start, "end": end, "scene_number": i+1})
+                    
+                    yield json.dumps({
+                        "type": "complete", 
+                        "video_path": request.path, 
+                        "scenes": formatted_scenes
+                    }) + "\n"
+                    print("DEBUG: Complete message yielded")
                 
         except Exception as e:
+            print(f"DEBUG: Generator Exception: {e}")
             yield json.dumps({"type": "error", "message": str(e)}) + "\n"
 
     return StreamingResponse(event_generator(), media_type="application/x-ndjson")

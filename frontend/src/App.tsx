@@ -13,6 +13,9 @@ function App() {
   const [error, setError] = useState('');
   const [splitResult, setSplitResult] = useState<string[] | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [threshold, setThreshold] = useState(27.0);
+  const [fps, setFps] = useState(0);
+  const [eta, setEta] = useState(0);
 
   const readStream = async (res: Response, onProgress: (val: number) => void): Promise<any> => {
     if (!res.body) throw new Error('No body');
@@ -34,6 +37,8 @@ function App() {
           const msg = JSON.parse(line);
           if (msg.type === 'progress') {
             onProgress(msg.value);
+            if (msg.fps) setFps(Math.round(msg.fps));
+            if (msg.eta) setEta(Math.round(msg.eta));
           } else if (msg.type === 'error') {
             throw new Error(msg.message);
           } else if (msg.type === 'complete') {
@@ -59,7 +64,7 @@ function App() {
       const res = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path, threshold: 27.0, use_ai: false }),
+        body: JSON.stringify({ path, threshold, use_ai: false }),
       });
 
       if (!res.ok) throw new Error(await res.text());
@@ -68,7 +73,9 @@ function App() {
       if (data) {
         setScenes(data.scenes);
         setAnalyzedPath(data.video_path);
-        setStatus('Analysis complete.');
+        setStatus(`Analysis complete. Found ${data.scenes.length} scenes.`);
+      } else {
+        throw new Error('Server closed connection without result.');
       }
     } catch (err: any) {
       setError(err.message || 'Analysis failed');
@@ -213,6 +220,21 @@ function App() {
               <Upload className="w-4 h-4" />
               <span>Drag and drop anywhere in this box</span>
             </div>
+
+            {/* Threshold Control */}
+            <div className="bg-black/20 p-4 rounded-xl border border-white/5 backdrop-blur-sm flex items-center gap-4">
+              <label className="text-sm font-medium text-slate-300 w-32">Sensitivity: {threshold.toFixed(1)}</label>
+              <input
+                type="range"
+                min="5"
+                max="95"
+                step="0.5"
+                value={threshold}
+                onChange={(e) => setThreshold(parseFloat(e.target.value))}
+                className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-400"
+              />
+              <span className="text-xs text-slate-500">Lower = More Scenes</span>
+            </div>
           </div>
 
           {/* Status / Error / Progress */}
@@ -237,6 +259,10 @@ function App() {
                   <div className="absolute inset-0 bg-white/20 animate-pulse"></div>
                 </div>
               </div>
+              <div className="flex justify-between text-xs text-slate-400 font-mono">
+                <span>{fps > 0 ? `${fps} FPS` : ''}</span>
+                <span>{eta > 0 ? `~${eta}s remaining` : ''}</span>
+              </div>
             </div>
           )}
 
@@ -244,6 +270,16 @@ function App() {
             <div className="p-4 bg-cyan-500/10 border border-cyan-500/20 rounded-xl text-cyan-200 flex items-center gap-3 backdrop-blur-md animate-in fade-in">
               <CheckCircle className="w-5 h-5 text-cyan-400" />
               {status}
+            </div>
+          )}
+
+          {!loading && status === 'Analysis complete.' && scenes.length === 0 && (
+            <div className="p-6 bg-yellow-500/10 border border-yellow-500/20 rounded-xl text-yellow-200 flex flex-col items-center gap-3 backdrop-blur-md animate-in fade-in">
+              <AlertCircle className="w-8 h-8 text-yellow-400" />
+              <div className="text-center">
+                <p className="font-bold text-lg">No scenes detected</p>
+                <p className="text-sm opacity-80">Try lowering the sensitivity threshold to detect subtler cuts.</p>
+              </div>
             </div>
           )}
 

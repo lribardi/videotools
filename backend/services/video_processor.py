@@ -3,7 +3,7 @@ import subprocess
 import shutil
 from typing import List, Tuple
 from scenedetect import detect, ContentDetector, SceneManager, open_video, split_video_ffmpeg
-from scenedetect.scene_manager import save_images
+from scenedetect.scene_manager import save_images, compute_downscale_factor
 
 class VideoProcessor:
     def __init__(self):
@@ -18,6 +18,11 @@ class VideoProcessor:
         video = open_video(video_path)
         scene_manager = SceneManager()
         scene_manager.add_detector(ContentDetector(threshold=threshold))
+        scene_manager._base_timecode = video.base_timecode
+        scene_manager._start_pos = video.base_timecode
+        if scene_manager._start_pos is None:
+             from scenedetect import FrameTimecode
+             scene_manager._start_pos = FrameTimecode(0, video.frame_rate)
         
         # Get total frames for progress calculation
         # Note: video.duration is a FrameTimecode object which uses .get_frames()
@@ -27,45 +32,73 @@ class VideoProcessor:
         elif hasattr(video.duration, 'frame_count'):
             total_frames = video.duration.frame_count
 
-        # Manual iteration to support progress callback
-        # We need to process frames one by one
-        frame_num = 0
+        # Calculate downscale factor (mimic detect_scenes behavior)
+        # SceneManager default auto_downscale=True
+        # We need to replicate this logic because _process_frame() expects the USER to handle it if calling manually
+        effective_frame_size = video.frame_size
+        downscale_factor = compute_downscale_factor(max(effective_frame_size))
         
-        # Performance Optimization: Downscale frame
-        # Content detection is efficient at low resolutions (e.g. height 270-360px).
-        # We will manually resize to ensure speed.
-        target_height = 360
+        import time
+        start_time = time.time()
         import cv2
 
+        frame_num = 0
+        
         while True:
             frame = video.read()
+            # Handle termination: None or explicit False (some adapters return False on EOF)
             if frame is None:
                 break
+            if isinstance(frame, bool) and not frame:
+                break
             
-            # Downscale for performance if needed
-            height, width = frame.shape[:2]
-            if height > target_height:
-                scale = target_height / height
-                new_width = int(width * scale)
-                frame_resized = cv2.resize(frame, (new_width, target_height), interpolation=cv2.INTER_LINEAR)
+            # Apply Downscaling (Standard Logic)
+            if downscale_factor > 1.0:
+                frame_im = cv2.resize(
+                    frame,
+                    (
+                        max(1, round(frame.shape[1] / downscale_factor)),
+                        max(1, round(frame.shape[0] / downscale_factor)),
+                    ),
+                    interpolation=cv2.INTER_LINEAR,
+                )
             else:
-                frame_resized = frame
-
+                frame_im = frame
+            
             # Use internal _process_frame since public API seems to lack simple frame feed in this version
             # or it's hidden. This affords us granular progress control.
-            scene_manager._process_frame(frame_num, frame_resized)
+            scene_manager._process_frame(frame_num, frame_im)
             
             frame_num += 1
             
             if callback and total_frames > 0 and frame_num % 30 == 0: # Update every ~30 frames
+                current_time = time.time()
+                elapsed = current_time - start_time
+                fps = frame_num / elapsed if elapsed > 0 else 0
+                
+                remaining_frames = total_frames - frame_num
+                eta = remaining_frames / fps if fps > 0 else 0
+                
                 progress = min(100, int((frame_num / total_frames) * 100))
-                callback(progress)
+                
+                # Try passing tuple or dict if callback supports it, 
+                # but standard callback usually takes 1 arg. 
+                # We control the callback in main.py, so we can change signature.
+                callback(progress, fps, eta)
         
         # Signal 100% done
         if callback:
-             callback(100)
+             callback(100, 0.0, 0.0)
              
         # Post-process (required in some modes, good practice)
+        # Manually construct last position to avoid potential NoneType from video.position at EOF
+        if video.base_timecode:
+             scene_manager._last_pos = video.base_timecode + frame_num
+        else:
+             # Fallback if base_timecode is somehow missing (unlikely with open_video)
+             from scenedetect import FrameTimecode
+             scene_manager._last_pos = FrameTimecode(frame_num, video.frame_rate)
+             
         scene_manager._post_process(frame_num)
 
         scene_list = scene_manager.get_scene_list()
