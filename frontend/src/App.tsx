@@ -271,6 +271,23 @@ function App() {
               <span>Drag and drop anywhere in this box</span>
             </div>
 
+            {/* Video Player Preview */}
+            {path && (
+              <div className="mt-8 rounded-xl overflow-hidden bg-black/40 border border-white/5 shadow-2xl relative group">
+                <video
+                  id="main-video-player"
+                  src={`/api/video?path=${encodeURIComponent(path)}`}
+                  controls
+                  className="w-full max-h-[400px] object-contain"
+                  onError={(e) => console.error("Video load error", e)}
+                />
+                <div className="absolute top-2 right-2 px-2 py-1 bg-black/60 rounded text-xs text-white/70 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                  Original Video
+                </div>
+              </div>
+            )}
+
+
             {/* Threshold Control */}
             <div className="bg-black/20 p-4 rounded-xl border border-white/5 backdrop-blur-sm flex items-center gap-4">
               <label className="text-sm font-medium text-slate-300 w-32">Sensitivity: {threshold.toFixed(1)}</label>
@@ -334,10 +351,42 @@ function App() {
             </div>
           )}
 
-          {/* Results */}
+          {/* Visual Results */}
           {scenes.length > 0 && (
             <div className="space-y-8 animate-in fade-in slide-in-from-bottom-8 duration-700">
-              <SceneList scenes={scenes} />
+              <SceneList
+                scenes={scenes}
+                videoPath={analyzedPath || path}
+                onPlayScene={(scene) => {
+                  // Scroll to player
+                  const player = document.getElementById('main-video-player') as HTMLVideoElement;
+                  if (player) {
+                    player.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    // Update src to play specific range
+                    // For MP4: #t=start,end (Client side seek)
+                    // For Transcoding (AVI): start=x&end=y (Server side seek)
+                    // Since we handle both in backend now somewhat, let's use query params for AVI
+                    // and hash for MP4? 
+                    // Actually, backend /api/video handles start/end params for transcoding. 
+                    // For FileResponse, it ignores query params, so we append hash.
+
+                    const isNative = path.toLowerCase().endsWith('.mp4') || path.toLowerCase().endsWith('.webm');
+                    const encodedPath = encodeURIComponent(analyzedPath || path);
+
+                    let newSrc = '';
+                    if (isNative) {
+                      // Native: use hash params for client-side range
+                      newSrc = `/api/video?path=${encodedPath}#t=${scene.start},${scene.end}`;
+                    } else {
+                      // Transcoded: use query params for server-side seek/cut
+                      newSrc = `/api/video?path=${encodedPath}&start=${scene.start}&end=${scene.end}`;
+                    }
+
+                    player.src = newSrc;
+                    player.play();
+                  }
+                }}
+              />
 
               <div className="flex justify-center pt-6 border-t border-white/5">
                 <button

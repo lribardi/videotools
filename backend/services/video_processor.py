@@ -145,6 +145,10 @@ class VideoProcessor:
         except:
              frame_duration = 0.033 # Fallback 30fps
 
+        # Force MP4 output for web/immich compatibility
+        # H.264 in AVI is problematic, and 'faststart' only works with MP4/MOV.
+        ext = ".mp4"
+
         for i, (start, end) in enumerate(scenes):
             output_file = os.path.join(output_dir, f"{name}_scene_{i+1:03d}{ext}")
             
@@ -169,6 +173,8 @@ class VideoProcessor:
                 '-c:v', 'libx264',
                 '-preset', 'fast',
                 '-crf', '22',
+                '-pix_fmt', 'yuv420p', # Ensure wide compatibility (prevent flickering in some web players)
+                '-movflags', '+faststart', # Web optimization
                 '-c:a', 'aac', # Re-encode audio too to ensure timestamp sync
                 output_file
             ]
@@ -182,5 +188,31 @@ class VideoProcessor:
             
         return created_files
 
-    def get_scene_images(self, video_path: str, scenes: List[Tuple[float, float]]) -> List[Tuple[str, str]]:
-        pass
+    def generate_thumbnail(self, video_path: str, time: float) -> bytes:
+        """
+        Generates a JPEG thumbnail for the video at the specified time.
+        """
+        if not os.path.exists(video_path):
+            raise FileNotFoundError("Video file not found")
+
+        # ffmpeg -ss {time} -i {path} -vframes 1 -vf scale=200:-1 -f image2 pipe:1
+        cmd = [
+            'ffmpeg',
+            '-ss', str(time),
+            '-i', video_path,
+            '-vframes', '1',
+            '-vf', 'scale=200:-1', # Width 200, maintain aspect ratio
+            '-f', 'image2',
+            'pipe:1'
+        ]
+        
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL
+        )
+        output, _ = process.communicate()
+        if process.returncode != 0:
+            raise RuntimeError("FFmpeg failed to generate thumbnail")
+            
+        return output

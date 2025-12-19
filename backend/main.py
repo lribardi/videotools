@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
@@ -204,3 +204,72 @@ async def split_video(request: SplitRequest):
             yield json.dumps({"type": "error", "message": str(e)}) + "\n"
     
     return StreamingResponse(event_generator(), media_type="application/x-ndjson")
+
+@app.get("/api/video")
+async def stream_video(path: str, start: float = 0.0, end: float = 0.0):
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Video not found")
+        
+    ext = os.path.splitext(path)[1].lower()
+    
+    # Files browsers usually support natively
+    if ext in ['.mp4', '.webm', '.ogg']:
+         return FileResponse(path)
+
+    # For other formats (avi, mkv, etc), we transcode on the fly
+    import subprocess
+    
+    def transcode():
+        # Build command with optional seeking
+        cmd = ['ffmpeg']
+        
+        # Seeking input (faster)
+        if start > 0:
+            cmd.extend(['-ss', str(start)])
+            
+        cmd.extend(['-i', path])
+        
+        # Duration limit if end is specified
+        if end > 0 and end > start:
+            cmd.extend(['-t', str(end - start)])
+            
+        cmd.extend([
+            '-c:v', 'libx264',
+            '-preset', 'ultrafast',
+            '-tune', 'zerolatency',
+            '-crf', '23', 
+            '-c:a', 'aac',
+            '-f', 'mp4',
+            '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
+             'pipe:1'
+        ])
+        
+        process = subprocess.Popen(
+            cmd, 
+            stdout=subprocess.PIPE, 
+            stderr=subprocess.DEVNULL
+        )
+        
+        try:
+            while True:
+                chunk = process.stdout.read(1024 * 64) 
+                if not chunk:
+                    break
+                yield chunk
+        finally:
+            if process.poll() is None:
+                process.terminate()
+            
+    return StreamingResponse(transcode(), media_type="video/mp4")
+
+@app.get("/api/thumbnail")
+async def get_thumbnail(path: str, time: float):
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Video not found")
+    
+    try:
+        from fastapi.responses import Response
+        image_bytes = video_processor.generate_thumbnail(path, time)
+        return Response(content=image_bytes, media_type="image/jpeg")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
