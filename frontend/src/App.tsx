@@ -16,6 +16,17 @@ function App() {
   const [threshold, setThreshold] = useState(27.0);
   const [fps, setFps] = useState(0);
   const [eta, setEta] = useState(0);
+  const [detectedScenes, setDetectedScenes] = useState(0);
+
+  const formatTime = (seconds: number) => {
+    if (seconds < 60) return `${seconds}s`;
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    if (m < 60) return `${m}m ${s}s`;
+    const h = Math.floor(m / 60);
+    const remM = m % 60;
+    return `${h}h ${remM}m ${s}s`;
+  };
 
   const readStream = async (res: Response, onProgress: (val: number) => void): Promise<any> => {
     if (!res.body) throw new Error('No body');
@@ -39,6 +50,7 @@ function App() {
             onProgress(msg.value);
             if (msg.fps) setFps(Math.round(msg.fps));
             if (msg.eta) setEta(Math.round(msg.eta));
+            if (msg.scenes) setDetectedScenes(msg.scenes);
           } else if (msg.type === 'error') {
             throw new Error(msg.message);
           } else if (msg.type === 'complete') {
@@ -51,7 +63,7 @@ function App() {
     }
   };
 
-  const handleAnalyze = async () => {
+  const handleAnalyze = async (autoSplit = false) => {
     if (!path) return;
     setLoading(true);
     setProgress(0);
@@ -74,19 +86,46 @@ function App() {
         setScenes(data.scenes);
         setAnalyzedPath(data.video_path);
         setStatus(`Analysis complete. Found ${data.scenes.length} scenes.`);
+
+        if (autoSplit && data.scenes.length > 0) {
+          // Chain the split immediately
+          await handleSplit(data.scenes, data.video_path);
+        }
       } else {
         throw new Error('Server closed connection without result.');
       }
     } catch (err: any) {
       setError(err.message || 'Analysis failed');
     } finally {
-      setLoading(false);
-      setProgress(0);
+      // Only reset loading if we didn't chain into auto-split (checked via status change?)
+      // Actually handleSplit sets loading=true internally. 
+      // But if we are in autoSplit, handleSplit will be awaited inside the try block.
+      // So when handleSplit finishes, it enters its own finally block which sets loading=false.
+      // THEN this handleAnalyze function finishes and hits THIS finally block, setting loading=false again.
+      // This is fine.
+      if (!autoSplit) {
+        setLoading(false);
+        setProgress(0);
+      } else {
+        // If autoSplit was requested but failed (e.g. 0 scenes), we should ensure loading is off.
+        // If it succeeded, handleSplit took over. 
+        // We can just safely set loading false here as a fail-safe, 
+        // BUT if handleSplit is running async but we awaited it...
+
+        // Wait, if I await handleSplit, it finishes completely before we get here.
+        // So setting loading=false here is correct.
+        setLoading(false);
+        setProgress(0);
+      }
     }
   };
 
-  const handleSplit = async () => {
-    if (!scenes.length || !analyzedPath) return;
+  const handleSplit = async (scenesArg?: Scene[], pathArg?: string) => {
+    const scenesToUse = scenesArg || scenes;
+    const pathToUse = pathArg || analyzedPath;
+
+    if (!scenesToUse.length || !pathToUse) return;
+
     setLoading(true);
     setProgress(0);
     setStatus('Splitting video files...');
@@ -96,7 +135,7 @@ function App() {
       const res = await fetch('/api/split', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ video_path: analyzedPath, scenes }),
+        body: JSON.stringify({ video_path: pathToUse, scenes: scenesToUse }),
       });
 
       if (!res.ok) throw new Error(await res.text());
@@ -207,12 +246,23 @@ function App() {
                 />
               </div>
               <button
-                onClick={handleAnalyze}
+                onClick={() => handleAnalyze()}
                 disabled={loading || !path}
                 className="glass-button px-8 py-3 rounded-xl font-semibold disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg"
               >
                 {loading && !scenes.length ? <RefreshCw className="w-5 h-5 animate-spin" /> : null}
                 Analyze Video
+              </button>
+              <button
+                onClick={() => handleAnalyze(true)}
+                disabled={loading || !path}
+                className="glass-button px-6 py-3 rounded-xl font-semibold disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg border border-cyan-500/30 hover:bg-cyan-500/20"
+                title="Analyze and automatically split scenes"
+              >
+                <div className="flex flex-col items-center leading-none text-xs">
+                  <span className="text-sm">Analyze</span>
+                  <span className="opacity-70">& Split</span>
+                </div>
               </button>
             </div>
 
@@ -259,9 +309,10 @@ function App() {
                   <div className="absolute inset-0 bg-white/20 animate-pulse"></div>
                 </div>
               </div>
-              <div className="flex justify-between text-xs text-slate-400 font-mono">
+              <div className="flex justify-between text-xs text-slate-400 font-mono mt-1">
                 <span>{fps > 0 ? `${fps} FPS` : ''}</span>
-                <span>{eta > 0 ? `~${eta}s remaining` : ''}</span>
+                {detectedScenes > 0 && <span>Found {detectedScenes} scenes</span>}
+                <span>{eta > 0 ? `${formatTime(eta)} remaining` : ''}</span>
               </div>
             </div>
           )}
@@ -290,7 +341,7 @@ function App() {
 
               <div className="flex justify-center pt-6 border-t border-white/5">
                 <button
-                  onClick={handleSplit}
+                  onClick={() => handleSplit()}
                   disabled={loading}
                   className="group relative px-10 py-4 bg-white text-black rounded-xl font-bold shadow-xl shadow-white/10 hover:shadow-cyan-500/20 transition-all transform hover:-translate-y-1 overflow-hidden"
                 >

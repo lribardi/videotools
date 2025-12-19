@@ -80,8 +80,8 @@ async def analyze_video(request: VideoRequest):
             import queue
             q = queue.Queue()
             
-            def progress_callback(percent, fps=0.0, eta=0.0):
-                q.put({"type": "progress", "value": percent, "fps": fps, "eta": eta})
+            def progress_callback(percent, fps=0.0, eta=0.0, scenes=0):
+                q.put({"type": "progress", "value": percent, "fps": fps, "eta": eta, "scenes": scenes})
             
             # Run detection in a separate thread
             import threading

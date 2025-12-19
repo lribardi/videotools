@@ -81,14 +81,26 @@ class VideoProcessor:
                 
                 progress = min(100, int((frame_num / total_frames) * 100))
                 
+                # Get number of cuts found so far
+                # _cutting_list contains timecodes of cuts. # of scenes = # of cuts + 1 (usually, or 0 if empty)
+                # Actually, detect_scenes source uses len(_cutting_list) to update progress bar. 
+                # Ideally we want "Scenes Found". 
+                num_cuts = len(scene_manager._cutting_list)
+                num_scenes_so_far = num_cuts + 1 if num_cuts > 0 or frame_num > 60 else 0 # Rough estimate
+                if num_cuts == 0:
+                     num_scenes_so_far = 0
+                else: 
+                     num_scenes_so_far = num_cuts + 1
+
                 # Try passing tuple or dict if callback supports it, 
                 # but standard callback usually takes 1 arg. 
                 # We control the callback in main.py, so we can change signature.
-                callback(progress, fps, eta)
+                callback(progress, fps, eta, num_scenes_so_far)
         
         # Signal 100% done
         if callback:
-             callback(100, 0.0, 0.0)
+             final_scenes = len(scene_manager._cutting_list) + 1 if len(scene_manager._cutting_list) > 0 else 0
+             callback(100, 0.0, 0.0, final_scenes)
              
         # Post-process (required in some modes, good practice)
         # Manually construct last position to avoid potential NoneType from video.position at EOF
@@ -124,6 +136,15 @@ class VideoProcessor:
         created_files = []
         total_scenes = len(scenes)
         
+        # Get frame rate for precise offset calculation
+        # We need to open the video to get stats
+        try:
+             video = open_video(video_path)
+             fps = video.frame_rate
+             frame_duration = 1.0 / fps if fps > 0 else 0.033
+        except:
+             frame_duration = 0.033 # Fallback 30fps
+
         for i, (start, end) in enumerate(scenes):
             output_file = os.path.join(output_dir, f"{name}_scene_{i+1:03d}{ext}")
             
@@ -132,9 +153,17 @@ class VideoProcessor:
             # -c:a copy: Copy audio to avoid quality loss there (unless it causes sync issues, then aac).
             # -ss before -i: Fast seek. With re-encoding, ffmpeg decodes from previous keyframe but drops frames until -ss, ensuring clean start.
             
+            # FIX: Add tiny offset to start time (e.g. 0.5 frame) to prevent ffmpeg from 
+            # picking up the last frame of the PREVIOUS scene due to rounding errors,
+            # which ruins thumbnails. 
+            # Only apply to 2nd scene onwards (i > 0)
+            adj_start = start
+            if i > 0:
+                adj_start = start + (frame_duration * 0.5)
+
             cmd = [
                 'ffmpeg', '-y',
-                '-ss', str(start),
+                '-ss', f"{adj_start:.3f}",
                 '-i', video_path,
                 '-t', str(end - start),
                 '-c:v', 'libx264',
