@@ -195,10 +195,15 @@ class VideoProcessor:
         if not os.path.exists(video_path):
             raise FileNotFoundError("Video file not found")
 
+        # Add a small offset to ensures we capture a frame INSIDE the scene,
+        # rather than safely on the boundary (which might round down to previous scene).
+        # 0.1s is safe for most frame rates (steps ~2-6 frames in).
+        adj_time = time + 0.1
+        
         # ffmpeg -ss {time} -i {path} -vframes 1 -vf scale=200:-1 -f image2 pipe:1
         cmd = [
             'ffmpeg',
-            '-ss', str(time),
+            '-ss', str(adj_time),
             '-i', video_path,
             '-vframes', '1',
             '-vf', 'scale=200:-1', # Width 200, maintain aspect ratio

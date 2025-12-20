@@ -63,6 +63,18 @@ function App() {
     }
   };
 
+  const [links, setLinks] = useState<Set<number>>(new Set());
+
+  const toggleLink = (index: number) => {
+    const newLinks = new Set(links);
+    if (newLinks.has(index)) {
+      newLinks.delete(index);
+    } else {
+      newLinks.add(index);
+    }
+    setLinks(newLinks);
+  };
+
   const handleAnalyze = async (autoSplit = false) => {
     if (!path) return;
     setLoading(true);
@@ -70,6 +82,7 @@ function App() {
     setStatus('Detecting scenes...');
     setError('');
     setScenes([]);
+    setLinks(new Set()); // Reset links
     setSplitResult(null);
 
     try {
@@ -88,7 +101,7 @@ function App() {
         setStatus(`Analysis complete. Found ${data.scenes.length} scenes.`);
 
         if (autoSplit && data.scenes.length > 0) {
-          // Chain the split immediately
+          // Chain the split immediately (no links for auto-split usually, but passing empty set safe)
           await handleSplit(data.scenes, data.video_path);
         }
       } else {
@@ -97,23 +110,10 @@ function App() {
     } catch (err: any) {
       setError(err.message || 'Analysis failed');
     } finally {
-      // Only reset loading if we didn't chain into auto-split (checked via status change?)
-      // Actually handleSplit sets loading=true internally. 
-      // But if we are in autoSplit, handleSplit will be awaited inside the try block.
-      // So when handleSplit finishes, it enters its own finally block which sets loading=false.
-      // THEN this handleAnalyze function finishes and hits THIS finally block, setting loading=false again.
-      // This is fine.
       if (!autoSplit) {
         setLoading(false);
         setProgress(0);
       } else {
-        // If autoSplit was requested but failed (e.g. 0 scenes), we should ensure loading is off.
-        // If it succeeded, handleSplit took over. 
-        // We can just safely set loading false here as a fail-safe, 
-        // BUT if handleSplit is running async but we awaited it...
-
-        // Wait, if I await handleSplit, it finishes completely before we get here.
-        // So setting loading=false here is correct.
         setLoading(false);
         setProgress(0);
       }
@@ -121,21 +121,52 @@ function App() {
   };
 
   const handleSplit = async (scenesArg?: Scene[], pathArg?: string) => {
-    const scenesToUse = scenesArg || scenes;
+    const rawScenes = scenesArg || scenes;
     const pathToUse = pathArg || analyzedPath;
 
-    if (!scenesToUse.length || !pathToUse) return;
+    if (!rawScenes.length || !pathToUse) return;
+
+    // Condense scenes based on links
+    const finalScenes: Scene[] = [];
+    if (rawScenes.length > 0) {
+      let currentStart = rawScenes[0].start;
+      let currentEnd = rawScenes[0].end;
+
+      for (let i = 0; i < rawScenes.length; i++) {
+        // If this scene is linked to the next one, simply extend the current block 
+        // and skip pushing for now.
+        // "links" set contains index 'i' if scene 'i' is linked to 'i+1'
+        if (links.has(i) && i < rawScenes.length - 1) {
+          // Extend to next scene
+          currentEnd = rawScenes[i + 1].end;
+          // Move to next iteration to check if THAT one is also linked
+        } else {
+          // Not linked to next, or end of list. Push what we have.
+          finalScenes.push({
+            start: currentStart,
+            end: currentEnd,
+            scene_number: finalScenes.length + 1
+          });
+
+          // If there are more scenes, prepare the next block
+          if (i < rawScenes.length - 1) {
+            currentStart = rawScenes[i + 1].start;
+            currentEnd = rawScenes[i + 1].end;
+          }
+        }
+      }
+    }
 
     setLoading(true);
     setProgress(0);
-    setStatus('Splitting video files...');
+    setStatus(`Splitting video into ${finalScenes.length} files...`);
     setError('');
 
     try {
       const res = await fetch('/api/split', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ video_path: pathToUse, scenes: scenesToUse }),
+        body: JSON.stringify({ video_path: pathToUse, scenes: finalScenes }),
       });
 
       if (!res.ok) throw new Error(await res.text());
@@ -358,34 +389,24 @@ function App() {
                 scenes={scenes}
                 videoPath={analyzedPath || path}
                 onPlayScene={(scene) => {
-                  // Scroll to player
+                  // ... logic ...
                   const player = document.getElementById('main-video-player') as HTMLVideoElement;
                   if (player) {
                     player.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    // Update src to play specific range
-                    // For MP4: #t=start,end (Client side seek)
-                    // For Transcoding (AVI): start=x&end=y (Server side seek)
-                    // Since we handle both in backend now somewhat, let's use query params for AVI
-                    // and hash for MP4? 
-                    // Actually, backend /api/video handles start/end params for transcoding. 
-                    // For FileResponse, it ignores query params, so we append hash.
-
                     const isNative = path.toLowerCase().endsWith('.mp4') || path.toLowerCase().endsWith('.webm');
                     const encodedPath = encodeURIComponent(analyzedPath || path);
-
                     let newSrc = '';
                     if (isNative) {
-                      // Native: use hash params for client-side range
                       newSrc = `/api/video?path=${encodedPath}#t=${scene.start},${scene.end}`;
                     } else {
-                      // Transcoded: use query params for server-side seek/cut
                       newSrc = `/api/video?path=${encodedPath}&start=${scene.start}&end=${scene.end}`;
                     }
-
                     player.src = newSrc;
                     player.play();
                   }
                 }}
+                links={links}
+                onToggleLink={toggleLink}
               />
 
               <div className="flex justify-center pt-6 border-t border-white/5">
