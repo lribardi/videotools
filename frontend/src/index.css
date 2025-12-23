@@ -1,16 +1,18 @@
-@import "tailwindcss";
-
-@theme {
-  --color-slate-900: #0f172a;
-  --color-slate-50: #f8fafc;
-  --color-white-5: rgba(255, 255, 255, 0.05);
-  --color-white-10: rgba(255, 255, 255, 0.1);
-  --color-white-20: rgba(255, 255, 255, 0.2);
-  --color-black-20: rgba(0, 0, 0, 0.2);
-  --color-black-40: rgba(0, 0, 0, 0.4);
-}
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
 @layer base {
+  :root {
+    --color-slate-900: #0f172a;
+    --color-slate-50: #f8fafc;
+    --color-white-5: rgba(255, 255, 255, 0.05);
+    --color-white-10: rgba(255, 255, 255, 0.1);
+    --color-white-20: rgba(255, 255, 255, 0.2);
+    --color-black-20: rgba(0, 0, 0, 0.2);
+    --color-black-40: rgba(0, 0, 0, 0.4);
+  }
+
   body {
     @apply bg-slate-900 text-slate-50 antialiased min-h-screen selection:bg-cyan-500/30 selection:text-cyan-200;
     background:
@@ -26,7 +28,7 @@
   }
 
   .glass-input {
-    @apply bg-black/20 border border-white/10 text-white placeholder-slate-400 focus:bg-black/40 focus:border-cyan-400/50 focus:ring-2 focus:ring-cyan-400/20 focus:outline-none transition-all duration-300;
+    @apply bg-black/20 border border-white/10 text-white placeholder-slate-400 focus:bg-black/40 focus:border-cyan-400/50 focus:border-2 focus:ring-cyan-400/20 focus:outline-none transition-all duration-300;
   }
 
   .glass-button {

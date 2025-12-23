@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { Video, Scissors, RefreshCw, CheckCircle, AlertCircle, Upload } from 'lucide-react';
+import { Video, Scissors, RefreshCw, CheckCircle, AlertCircle, Upload, Layers } from 'lucide-react';
 import type { Scene } from './types';
 import { SceneList } from './components/SceneList';
 
@@ -232,6 +232,42 @@ function App() {
     }
   }, []);
 
+  const handleRegroup = async () => {
+    if (!scenes.length) return;
+    setLoading(true);
+    setStatus('Regrouping scenes with AI...');
+    setError('');
+
+    try {
+      const res = await fetch('/api/regroup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ video_path: analyzedPath || path, scenes }),
+      });
+
+      if (!res.ok) throw new Error(await res.text());
+
+      const data = await res.json();
+      const newScenes = data.scenes;
+      setScenes(newScenes);
+
+      // Auto-link scenes in the same group
+      const newLinks = new Set<number>();
+      for (let i = 0; i < newScenes.length - 1; i++) {
+        if (newScenes[i].group_id && newScenes[i].group_id === newScenes[i + 1].group_id) {
+          newLinks.add(i);
+        }
+      }
+      setLinks(newLinks);
+
+      setStatus(`Regrouped into ${new Set(newScenes.map((s: Scene) => s.group_id)).size} groups.`);
+    } catch (err: any) {
+      setError(err.message || 'Regroup failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen p-8 flex items-center justify-center">
       <div className="w-full max-w-5xl glass-panel p-8 md:p-12 relative overflow-hidden backdrop-blur-2xl">
@@ -409,7 +445,20 @@ function App() {
                 onToggleLink={toggleLink}
               />
 
-              <div className="flex justify-center pt-6 border-t border-white/5">
+
+
+              <div className="flex justify-center pt-6 border-t border-white/5 gap-4">
+                <button
+                  onClick={handleRegroup}
+                  disabled={loading}
+                  className="group relative px-6 py-4 bg-black/40 text-cyan-300 border border-cyan-500/30 rounded-xl font-bold shadow-lg hover:bg-cyan-500/10 transition-all"
+                >
+                  <span className="flex items-center gap-2">
+                    <Layers className="w-5 h-5" />
+                    Regroup with AI
+                  </span>
+                </button>
+
                 <button
                   onClick={() => handleSplit()}
                   disabled={loading}

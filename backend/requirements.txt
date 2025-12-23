@@ -4,3 +4,4 @@ scenedetect[opencv]
 opencv-python-headless
 ollama
 python-multipart
+pillow

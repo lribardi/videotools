@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File
 from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 import os
 import shutil
 import json
@@ -48,9 +48,22 @@ class SplitRequest(BaseModel):
     video_path: str
     scenes: List[Scene]
 
+class GroupRequest(BaseModel):
+    video_path: str
+    scenes: List[Dict[str, Any]] # Use Dict to allow flexibility if Scene model is strict
+
 @app.get("/")
 async def root():
     return {"message": "Video Splitter API is running"}
+
+from services.video_grouper import VideoGrouper
+video_grouper = VideoGrouper()
+
+@app.post("/api/regroup")
+async def regroup_scenes(request: GroupRequest):
+    # Pass video_path as well now
+    grouped_scenes = video_grouper.group_scenes(request.video_path, request.scenes)
+    return {"scenes": grouped_scenes}
 
 @app.post("/api/analyze")
 async def analyze_video(request: VideoRequest):
